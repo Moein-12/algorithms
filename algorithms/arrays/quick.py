@@ -33,38 +33,16 @@ Check the functions' documentations for more information.
 """
 
 from collections import abc
-from operator import lt as default_lt
 from itertools import pairwise
-from functools import cmp_to_key
 import typing as tp
 import random as rnd
+
+from ._utilities import identity, positive_index, Key
 
 
 T = tp.TypeVar('T')
 T2 = tp.TypeVar('T2')
 
-
-# types based on first experiment's results
-
-class SupportsLt[T](tp.Protocol):
-    """Protocol for types that support the less than operator (<).
-
-    This protocol defines the interface for types that implement the __lt__ method,
-    allowing them to be compared using the < operator.
-    """
-    def __lt__(self, other: T) -> bool: ...
-
-class SupportsGt[T](tp.Protocol):
-    """Protocol for types that support the greater than operator (>).
-    
-    This protocol defines the interface for types that implement the __gt__ method,
-    allowing them to be compared using the > operator.
-    """
-    def __gt__(self, other: T) -> bool: ...
-
-LtCompetitor: tp.TypeAlias = abc.Callable[[SupportsLt[T], T], bool] | abc.Callable[[T, SupportsGt[T]], bool]
-CustomLtFunction: tp.TypeAlias = abc.Callable[[T, T], bool]
-Lt: tp.TypeAlias = LtCompetitor[T] | CustomLtFunction[T]
 
 # predefined pivot functions for parameterization
 
@@ -166,9 +144,6 @@ def divider_pivots(length: int, n: int) -> list[int]:
     return [i * length // n for i in range(1, n)]  # returns n - 1 numbers in the range of length
 
 
-default_lt: LtCompetitor
-
-
 # bonus (there's no internal validation for the pivot in _quick_sort and _quick_select)
 def validate_pivot_selector(max_length: int, pivot: int) -> list[int]:
     """Validates a pivot selector by checking all possible sequence lengths.
@@ -187,47 +162,14 @@ def validate_pivot_selector(max_length: int, pivot: int) -> list[int]:
     return errors
 
 
-# helpers
-
-def _identity(x: tp.Any) -> tp.Any:  # used as default key
-    """Identity function that returns its input untouched.
-    
-    Args:
-        x: Any value.
-    
-    Returns:
-        The input value untouched.
-    """
-    return x
-
-def _positive_index(index: int, length: int) -> int:  # to turn pythonic indexes to algorithmic ones
-    """Converts a Python-style index to a positive index.
-    
-    Args:
-        index: The index to convert.
-        length: The length of the sequence.
-    
-    Returns:
-        int: The positive index.
-        
-    Raises:
-        IndexError: If the index is out of range.
-    """
-    if index < -length or length <= index:
-        raise IndexError("index out of range")
-
-    return index + length if index < 0 else index
-
-
 # single-pivot quicksort
 
-def partition[T: tp.Any, T2: tp.Any](  # Hoare's algorithm
+def partition(  # Hoare's algorithm
     seq: abc.MutableSequence[T],
     low: int,
     high: int,
     pivot_index: int,
-    key: abc.Callable[[T], T2] = _identity,
-    lt: Lt[T2] = default_lt,
+    key: Key[T] = identity,
 ) -> int:
     """Partitions a sequence around a pivot using Hoare's algorithm.
     
@@ -237,7 +179,6 @@ def partition[T: tp.Any, T2: tp.Any](  # Hoare's algorithm
         high: The upper bound index.
         pivot_index: The index of the pivot element.
         key: A function to extract a comparison key from elements.
-        lt: A function defining less-than comparison between keys.
     
     Returns:
         int: The final position of the pivot element.
@@ -249,11 +190,11 @@ def partition[T: tp.Any, T2: tp.Any](  # Hoare's algorithm
     pivot_key = key(high_value)
     
     while low + 1 < high:
-        while lt(key(low_value), pivot_key):
+        while key(low_value) < pivot_key:
             low += 1
             low_value = seq[low]
 
-        while lt(pivot_key, key(high_value)):
+        while pivot_key < key(high_value):
             high -= 1
             high_value = seq[high]
 
@@ -276,8 +217,7 @@ def _iterative_quick_sort(
     *,
     k: int = 0,  # max distance from the sorted position
     pivot_selector: abc.Callable[[int], int] = middle_as_pivot,
-    key: abc.Callable[[T], T2] = _identity,
-    lt: Lt[T2] = default_lt,
+    key: Key[T] = identity,
 ) -> None:
     """Performs iterative quicksort on a sequence.
     
@@ -288,7 +228,6 @@ def _iterative_quick_sort(
         k: Maximum distance from sorted position.
         pivot_selector: Function to select pivot index.
         key: Function to extract comparison key from elements.
-        lt: Function defining less-than comparison between keys.
     """
     length = high - low
 
@@ -316,7 +255,7 @@ def _iterative_quick_sort(
         high = stack[pointer + 1]
         
         # considering the pivot_selector(...) is always valid
-        pivot_index = partition(seq, low, high, pivot_selector(high - low) + low , key, lt)
+        pivot_index = partition(seq, low, high, pivot_selector(high - low) + low , key)
 
         left = pivot_index - low > k  # does the left side have mode than k elements to sort?
         right = high - pivot_index > k  # does the right side have at least two elements to sort?
@@ -343,8 +282,7 @@ def _quick_sort(
     *,
     k: int = 0,  # max distance from the sorted position
     pivot_selector: abc.Callable[[int], int] = middle_as_pivot,
-    key: abc.Callable[[T], T2] = _identity,
-    lt: Lt[T2] = default_lt,
+    key: Key[T] = identity,
 ) -> None:
     """Performs recursive quicksort on a sequence.
     
@@ -355,11 +293,10 @@ def _quick_sort(
         k: Maximum distance from sorted position.
         pivot_selector: Function to select pivot index.
         key: Function to extract comparison key from elements.
-        lt: Function defining less-than comparison between keys.
     """
     if high - low > 1:  # when there are at least two elements to sort
         # considering the pivot(...) is always valid
-        pivot_index = partition(seq, low, high, pivot_selector(high - low) + low, key, lt)
+        pivot_index = partition(seq, low, high, pivot_selector(high - low) + low, key)
         
         # for a k-sorted array, there must be at least k + 2 elements to sort
         # not k + 1 because if we consider the element on `low` after sorting
@@ -367,9 +304,9 @@ def _quick_sort(
         # and the sorting step was unnecessary
 
         if pivot_index - low > k + 1:
-            _quick_sort(seq, low, pivot_index, pivot_selector=pivot_selector, key=key, lt=lt, k=k)
+            _quick_sort(seq, low, pivot_index, pivot_selector=pivot_selector, key=key, k=k)
         if high - (pivot_index + 1) > k + 1:
-            _quick_sort(seq, pivot_index + 1, high, pivot_selector=pivot_selector, key=key, lt=lt, k=k)
+            _quick_sort(seq, pivot_index + 1, high, pivot_selector=pivot_selector, key=key, k=k)
 
 
 def _quick_select(
@@ -380,8 +317,7 @@ def _quick_select(
     k: int = 0,
     *,
     pivot_selector: abc.Callable[[int], int] = middle_as_pivot,
-    key: abc.Callable[[T], T2] = _identity,
-    lt: Lt[T2] = default_lt,
+    key: Key[T] = identity,
 ) -> T:
     """Selects the kth smallest element in a sequence using quickselect algorithm.
     
@@ -392,7 +328,6 @@ def _quick_select(
         k: The rank of the element to find (0-based).
         pivot_selector: Function to select pivot index.
         key: Function to extract comparison key from elements.
-        lt: Function defining less-than comparison between keys.
     
     Returns:
         The kth smallest element in the sequence.
@@ -404,7 +339,7 @@ def _quick_select(
 
     while True:
         pivot_index = pivot_selector(length) + low  # pivot is always in the range of low and high
-        pivot_index = partition(seq, low, high, pivot_index, key, lt)
+        pivot_index = partition(seq, low, high, pivot_index, key)
 
         # pivot_index is the index of the pivot in the sorted array
         if pivot_index == k:
@@ -422,13 +357,12 @@ def _quick_select(
 
 # multi-pivot quicksort
 
-def multi_pivot_partition[T: tp.Any, T2: tp.Any](
+def multi_pivot_partition(
     seq: abc.MutableSequence[T],
     low: int,  # inclusive
     high: int,  # inclusive
     pivot_indexes: list[int],
-    key: abc.Callable[[T], T2] = _identity,
-    lt: Lt[T2] = default_lt,
+    key: Key[T] = identity,
 ) -> list[int]:
     """Partitions a sequence around multiple pivots.
     
@@ -438,7 +372,6 @@ def multi_pivot_partition[T: tp.Any, T2: tp.Any](
         high: The upper bound index (inclusive).
         pivot_indexes: List of pivot element indexes.
         key: Function to extract comparison key from elements.
-        lt: Function defining less-than comparison between keys.
     
     Returns:
         list[int]: Final positions of the pivot elements.
@@ -457,19 +390,11 @@ def multi_pivot_partition[T: tp.Any, T2: tp.Any](
     # original_pivots = [seq[high - k + 1 + i] for i in range(k)]
     # pivot_keys = [key(p) for p in original_pivots]
     #
-    # # Sort the pivots and their keys using the comparator
-    # def compare(a, b):
-    #     a_key, a_pivot = a
-    #     b_key, b_pivot = b
-    #     if lt(a_key, b_key):
-    #         return -1
-    #     elif lt(b_key, a_key):
-    #         return 1
-    #     else:
-    #         return 0
-    #
+    # # sort based on keys
     # pivot_tuples = list(zip(pivot_keys, original_pivots))
-    # pivot_tuples.sort(key=cmp_to_key(compare))
+    # pivot_tuples.sort(key=key)
+    #
+    # # Reconstruct the pivots in sorted order
     # sorted_pivots = tuple(p for (_, p) in pivot_tuples)
     # sorted_keys = tuple(k for (k, _) in pivot_tuples])
     
@@ -489,7 +414,7 @@ def multi_pivot_partition[T: tp.Any, T2: tp.Any](
 
             # we can still have access to a and b with:
             # a, b = zip(*zipped)  # items are same but in tuples
-            key=cmp_to_key(lambda a, b: lt(b[0], a[0]) - lt(a[0], b[0]))  # we can treat bools like 0 and 1 so...
+            key=key  # type: ignore because it DOES support key, just the type-hinting is different
         )
     )
     
@@ -510,7 +435,7 @@ def multi_pivot_partition[T: tp.Any, T2: tp.Any](
         left, right = 0, k
         while left < right:
             mid = (left + right) >> 1
-            if lt(current_key, sorted_keys[mid]):
+            if current_key < sorted_keys[mid]:
                 right = mid
             else:
                 left = mid + 1
@@ -542,8 +467,7 @@ def _multi_pivot_quicksort(
     k: int = 0,  # max distance from the sorted position
     pivot_count: int = 2,
     pivot_selector: abc.Callable[[int, int], list[int]] = divider_pivots,
-    key: abc.Callable[[T], T2] = _identity,
-    lt: Lt[T2] = default_lt,
+    key: Key[T] = identity,
 ):
     """
     Recursively sort a sequence using multiple pivot quicksort algorithm.
@@ -556,16 +480,15 @@ def _multi_pivot_quicksort(
         pivot_count: Number of pivots to use
         pivot_selector: Function to select pivot positions
         key: Function to extract comparison key
-        lt: Function for less than comparison
     """
     pivot_indexes = [low + i for i in pivot_selector(high - low, pivot_count)]
     for l, h in pairwise(
-        [low] + multi_pivot_partition(seq, low, high, pivot_indexes, key, lt) + [high]
+        [low] + multi_pivot_partition(seq, low, high, pivot_indexes, key) + [high]
     ):
         if h - l > pivot_count * (2 + k) + 1 + k:
             _multi_pivot_quicksort(
                 seq, l, h, k=k, pivot_count=pivot_count,
-                pivot_selector=pivot_selector, key=key, lt=lt
+                pivot_selector=pivot_selector, key=key
             )
 
 def _iterative_multi_pivot_quicksort(
@@ -577,9 +500,7 @@ def _iterative_multi_pivot_quicksort(
     k: int = 0,  # max distance from the sorted position
     pivot_count: int = 2,
     pivot_selector: abc.Callable[[int, int], list[int]] = divider_pivots,
-    key: abc.Callable[[T], T2] = _identity,
-    lt: Lt[T2] = default_lt,
-
+    key: Key[T] = identity,
 ):
     """
     Iteratively sort a sequence using multiple pivot quicksort algorithm.
@@ -592,7 +513,6 @@ def _iterative_multi_pivot_quicksort(
         pivot_count: Number of pivots to use
         pivot_selector: Function to select pivot positions
         key: Function to extract comparison key
-        lt: Function for less than comparison
     """
     if high - low < 2:
         return
@@ -615,7 +535,7 @@ def _iterative_multi_pivot_quicksort(
             continue
 
         pivot_indexes = [l + i for i in pivot_selector(h - l, pivot_count)]
-        regions = multi_pivot_partition(seq, l, h, pivot_indexes, key, lt)
+        regions = multi_pivot_partition(seq, l, h, pivot_indexes, key)
         bounds = [l] + regions + [h]
 
         # Push subregions onto stack in reverse order for correct processing
@@ -637,8 +557,7 @@ def quick_sort(
     k: int = 0,
     pivot_count: tp.Literal[1] = 1,
     pivot_selector: abc.Callable[[int], int] = middle_as_pivot,
-    key: abc.Callable[[T], T2] = _identity,
-    lt: Lt[T2] = default_lt,
+    key: Key[T] = identity,
     iterative: bool = False,
 ) -> None: ...
 
@@ -652,15 +571,14 @@ def quick_sort(
     k: int = 0,
     pivot_count: int = ...,
     pivot_selector: abc.Callable[[int, int], list[int]] = None,
-    key: abc.Callable[[T], T2] = _identity,
-    lt: Lt[T2] = default_lt,
+    key: Key[T] = identity,
     iterative: bool = False,
 ) -> None: ...
 
 
 def quick_sort(
-    seq, /, low=0, high=-1, *, k=0, pivot_count=1, pivot_selector=None,
-    key=_identity, lt=default_lt, iterative=False,
+    seq, /, low=0, high=-1, *, k=0, pivot_count=1,
+    pivot_selector=None, key=identity, iterative=False,
 ) -> None:
     """Sort a mutable sequence in-place using quicksort algorithm.
 
@@ -672,7 +590,6 @@ def quick_sort(
         pivot_count: Number of pivots to use (default 1)
         pivot_selector: Function to select pivot(s) (default None)
         key: Function to extract comparison key (default identity)
-        lt: Function for less-than comparison (default <)
         iterative: Whether to use iterative implementation (default False)
     """
     for check, typ, name in (
@@ -683,10 +600,9 @@ def quick_sort(
         (k >= 0, ValueError, 'k must be non-negative'),
         (isinstance(pivot_count, int), TypeError, 'pivot_count must be integer'),
         (pivot_count > 0, ValueError, 'pivot_count must be positive'),
-        (pivot_selector is not None or callable(pivot_selector),
+        (pivot_selector is None or callable(pivot_selector),
          TypeError, 'pivot_selector must be callable'),
         (callable(key), TypeError, 'key must be callable'),
-        (callable(lt), TypeError, 'lt must be callable'),
         (isinstance(iterative, bool), TypeError, 'iterative must be a boolean'),
     ):
         if not check:
@@ -695,8 +611,8 @@ def quick_sort(
     if (length := len(seq)) < 2:
         return # already counts sorted
     
-    low = _positive_index(low, length)
-    high = _positive_index(high, length)
+    low = positive_index(low, length)
+    high = positive_index(high, length)
 
     if pivot_count > 1:
         if pivot_selector is None:
@@ -709,9 +625,8 @@ def quick_sort(
             high,
             k=k,
             pivot_count=pivot_count,
-            pivot_selector=pivot_selector,
+            pivot_selector=pivot_selector,  # type: ignore
             key=key,
-            lt=lt
         )
 
     elif pivot_count < 1:
@@ -727,9 +642,8 @@ def quick_sort(
             low,
             high,
             k=k,
-            pivot_selector=pivot_selector,
+            pivot_selector=pivot_selector,  # type: ignore
             key=key,
-            lt=lt
         )
 
 
@@ -741,8 +655,7 @@ def quick_select(
     high: int = -1,
     *,
     pivot_selector: abc.Callable[[int], int] = middle_as_pivot,
-    key: abc.Callable[[T], T2] = _identity,
-    lt: Lt[T2] = default_lt,
+    key: Key[T] = identity,
 ) -> T:
     """Select the kth smallest element from a mutable sequence using quickselect algorithm.
 
@@ -753,7 +666,6 @@ def quick_select(
         high: Ending index for selection (default -1)
         pivot_selector: Function to select pivot (default middle_as_pivot)
         key: Function to extract comparison key (default identity)
-        lt: Function for less-than comparison (default <)
 
     Returns:
         The kth smallest element in the sequence
@@ -770,7 +682,6 @@ def quick_select(
         (k >= 0, ValueError, 'k must be non-negative'),
         (callable(pivot_selector), TypeError, 'pivot_selector must be callable'),
         (callable(key), TypeError, 'key must be callable'),
-        (callable(lt), TypeError, 'lt must be callable'),
     ):
         if not check:
             raise typ(f'{name}, got {locals()[name.split()[0]]} instead')
@@ -778,10 +689,10 @@ def quick_select(
     if (length := len(seq)) < 1:
         raise ValueError('empty sequence')
     
-    low = _positive_index(low, length)
-    high = _positive_index(high, length)
+    low = positive_index(low, length)
+    high = positive_index(high, length)
 
     if k < low or high <= k:
         raise IndexError('index out of range')
 
-    return _quick_select(seq, low, high, k, pivot_selector=pivot_selector, key=key, lt=lt)
+    return _quick_select(seq, low, high, k, pivot_selector=pivot_selector, key=key)
