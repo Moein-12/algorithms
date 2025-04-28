@@ -23,7 +23,7 @@ A collection of algorithm implementations focusing on:
 
 ### **Setup**  
 ```bash  
-git clone https://github.com/your-username/algorithms.git  
+git clone https://github.com/Moein-12/algorithms.git  
 cd algorithms  
 ```
 
