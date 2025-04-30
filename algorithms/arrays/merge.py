@@ -1,4 +1,5 @@
 from collections import abc
+from itertools import pairwise, islice
 import typing as tp
 
 from ._utilities import Key, UNDEFINED, identity
@@ -66,60 +67,54 @@ def standard_merge_sort(
 
     # elif start + 1 == end:
     #     pass  # as it's already sorted
+    
+    else:
+        raise IndexError(f'Invalid range: [{start}, {end})')
 
 
 def _merged(
-    seq: abc.MutableSequence[T],
-    /,
-    start: int,
-    middle: int,
-    end: int,
-    *,
-    key: Key[T] = identity,
-) -> None:
-    raise NotImplementedError
+    gens: abc.MutableSequence[abc.Iterator[T]],
+    key: Key[T] = None,
+) -> abc.Generator[T]:
+    items = [next(gen, UNDEFINED) for gen in gens]
+    active_count = len(items)
+    get_key = items.__getitem__ if key is None else lambda i: key(items[i])  # type: tp.Any
+    
+    for i in range(active_count - 1, -1, -1):
+        if items[i] is UNDEFINED:
+            items[i], items[active_count - 1] = items[active_count - 1], items[i]
+            gens[i], gens[active_count - 1] = gens[active_count - 1], gens[i]
+            active_count -= 1
+    
+    while active_count > 0:
+        min_index = min(range(active_count), key=get_key)
+        yield items[min_index]
+
+        next_value = next(gens[min_index], UNDEFINED)
+
+        if next_value is UNDEFINED:
+            active_count -= 1
+            items[min_index], items[active_count] = items[active_count], items[min_index]
+            gens[min_index], gens[active_count] = gens[active_count], gens[min_index]
+        else:
+            items[min_index] = next_value
 
 def _merge_sorted(
-    seq: abc.MutableSequence[T],
+    seq: abc.Sequence[T],
     /,
     start: int,
-    middle: int,
     end: int,
     *,
+    k: int = 2,
     key: Key[T] = identity,
-) -> None:
-    raise NotImplementedError
+) -> abc.Iterator[T]:
+    if end - start < 2:
+        return iter(seq[start:end])
 
-def _merged_indexes(
-    seq: abc.MutableSequence[T],
-    /,
-    start: int,
-    middle: int,
-    end: int,
-    *,
-    key: Key[T] = identity,
-) -> tuple[int, int]:
-    raise NotImplementedError
-
-def _merge_sorted_indexes(
-    seq: abc.MutableSequence[T],
-    /,
-    start: int,
-    middle: int,
-    end: int,
-    *,
-    key: Key[T] = identity,
-) -> tuple[int, int]:
-    raise NotImplementedError
-
-def _enumerate_merge_sorted(
-    seq: abc.MutableSequence[T],
-    /,
-    start: int,
-    middle: int,
-    end: int,
-    *,
-    key: Key[T] = identity,
-) -> tuple[int, int]:
-    raise NotImplementedError
-
+    else:
+        length = end - start
+        return _merged(
+            [_merge_sorted(seq, low, high, k=k, key=key) for low, high in pairwise(
+                start + (length * ind // k) for ind in range(k + 1)
+            )], key=key,
+        )
